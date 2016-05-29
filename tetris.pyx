@@ -121,35 +121,18 @@ def run(N, NT, T, lT, lI):
 
                                 nextJs[(r, o)] += odist[0, np] * rv.dot(nf)
 
-                    #if nextState != None:
-                    #    nextJs[(r, o)] = reward + Qc
-
-    #            1/0
-            #print state, nextJs
-
             options = sorted(nextJs.items(), key = lambda x : x[1])
 
             Js = numpy.array([Jp for uopt, Jp in options])
 
             probs = numpy.exp(-Js / T) / sum(numpy.exp(-Js / T))
 
-            #print probs
-            #if t == 25 and i == 5:
-            #    1/0
-
-            r = numpy.random.random() * sum(probs)
+            r = numpy.random.random() * probs.sum()
 
             uopt, Jp = options[bisect.bisect_left(numpy.cumsum(probs), r)]
 
-            #if numpy.random.rand() < 0.5:
-            #    uopt, Jp = options[0]
-            #else:
-            #    uopt, Jp = options[numpy.random.randint(len(options))]
-            #1/0
             r, o = uopt
-            #print t, i, p, r, o
-            #if i == 0:
-            #    print uopt
+
             nextState, reward = getNextRealState(state, p, r, o)
 
             r = numpy.random.random() * odist.sum()
@@ -163,19 +146,10 @@ def run(N, NT, T, lT, lI):
                 Qcf = 0.0
 
             dt = reward + Qcf - Qc
-            #if (state, p):
-            #    print dt
             #print reward + Qcf, - Qc
-            #print numpy.linalg.norm(f)**2
-            #1/0
-            #errors.append(dt)
 
-            #print state, nextState
-            #1/0
             dr = (lT)**t * (lI)**i * dt * f / (numpy.linalg.norm(f)**2)
             rv = rv + dr
-
-            #print numpy.linalg.norm(dr)
 
             if nextState is None:
                 #print i, (0.75)**i
