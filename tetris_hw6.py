@@ -5,12 +5,23 @@ import itertools
 
 #%%
 
-h = 4
-w = 4
+h = 3
+w = 3
 
 pieces = [numpy.array([[0, 1], [1, 1]]).astype('uint8'),
           numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
           numpy.array([[1], [1]]).astype('uint8')]
+#%%
+h = 14
+w = 8
+
+pieces = [numpy.array([[1, 1], [1, 1]]).astype('uint8'),
+          numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
+          numpy.array([[1, 1, 0], [0, 1, 1]]).astype('uint8'),
+         numpy.array([[1], [1], [1], [1]]).astype('uint8'),
+         numpy.array([[0, 1, 0], [1, 1, 1]]).astype('uint8'),
+         numpy.array([[0, 0, 1], [1, 1, 1]]).astype('uint8'),
+         numpy.array([[1, 0, 0], [1, 1, 1]]).astype('uint8')]
 #%%
 
 def state2board(state):
@@ -139,7 +150,7 @@ def getNextRealState(state, p, r, o):
 
         for i in range(h, 2 * h):
             if newState[i].sum() != 0:
-                return None, None
+                return None, reward
 
         return tuple(newState[:h].flatten()), reward
     else:
@@ -200,6 +211,7 @@ P = numpy.ones((len(pieces), len(pieces))) / float(len(pieces))
 #P = numpy.array([[0.0, 1.0, 0.0],
 #                 [0.0, 0.0, 1.0],
 #                 [1.0, 0.0, 0.0]])
+#%%
 
 for N in Ns:
     Js = {}
@@ -256,65 +268,121 @@ import bisect
 vs = []
 
 def features(state, p):
-    if p == 0:
-        return numpy.concatenate((state, [1, 0, 0]))
-    elif p == 1:
-        return numpy.concatenate((state, [0, 1, 0]))
-    else:
-        return numpy.concatenate((state, [0, 0, 1]))
+    morestate = []
+#
+    for i in range(len(state) - 1):
+        morestate.append(state[i] * state[i + 1])
 
-rv = numpy.random.random(w * h + 3)
-for t in range(1000):
-    state, p = (tuple([0] * w * h), numpy.random.randint(0, len(pieces)))
+    state = numpy.array(state) - 0.5
+
+    state = numpy.concatenate((state, morestate))
+
+    nstate = [[0] * len(state)] * len(pieces)
+    nstate[p] = state
+
+    return numpy.concatenate(nstate)
+
+N = 200
+
+P = numpy.ones((len(pieces), len(pieces))) / float(len(pieces))
+rv = numpy.random.random(len(features([0] * w * h, numpy.random.randint(0, len(pieces))))) * 0.0
+
+errors = []
+T = 0.1
+for t in range(2000):
+    state, p = (tuple([0] * w * h), 0)#numpy.random.randint(0, len(pieces))
     total = 0.0
 
     for i in range(N):
         f = numpy.array(features(state, p))
 
-        Qc = max(0.0, rv.dot(f))
-
-        nextJs = {}
-        for r in range(4):
-            for o in range(w):
-                nextState, reward = getNextRealState(state, p, r, o)
-
-                if nextState != None:
-                    nextJs[(r, o)] = reward + Qc
-
-        if len(nextJs) == 0:
-            break
-#            1/0
-        #print state, len(nextJs)
-
-        uopt, Jp = sorted(nextJs.items(), key = lambda x : x[1])[0]
-
-        r, o = uopt
-        #if i == 0:
-        #    print uopt
-        nextState, reward = getNextRealState(state, p, r, o)
+        Qc = rv.dot(f)
 
         qdist = numpy.zeros((1, len(pieces)))
         qdist[0, p] = 1.0
 
         odist = qdist.dot(P)
 
+        nextJs = {}
+        for r in range(4):
+            for o in range(w):
+                nextState, reward = getNextRealState(state, p, r, o)
+
+                if reward is not None:
+                    nextJs[(r, o)] = reward
+
+                    if nextState is not None:
+                        for np in range(3):
+                            nf = numpy.array(features(nextState, np))
+
+                            nextJs[(r, o)] += odist[0, np] * rv.dot(nf)
+
+                #if nextState != None:
+                #    nextJs[(r, o)] = reward + Qc
+
+#            1/0
+        #print state, nextJs
+
+        options = sorted(nextJs.items(), key = lambda x : x[1])
+
+        Js = numpy.array([Jp for uopt, Jp in options])
+
+        probs = numpy.exp(-Js / T) / sum(numpy.exp(-Js / T))
+
+        #print probs
+        #if t == 25 and i == 5:
+        #    1/0
+
+        r = numpy.random.random() * sum(probs)
+
+        uopt, Jp = options[bisect.bisect_left(numpy.cumsum(probs), r)]
+
+        #if numpy.random.rand() < 0.5:
+        #    uopt, Jp = options[0]
+        #else:
+        #    uopt, Jp = options[numpy.random.randint(len(options))]
+        #1/0
+        r, o = uopt
+        #print t, i, p, r, o
+        #if i == 0:
+        #    print uopt
+        nextState, reward = getNextRealState(state, p, r, o)
+
         r = numpy.random.random() * sum(odist)
 
         np = bisect.bisect_left(numpy.cumsum(odist), r)
-        Qcf = max(0.0, rv.dot(features(nextState, np)))
+
+        if nextState is not None:
+            Qcf = rv.dot(features(nextState, np))
+        else:
+            Qcf = 0.0
+
         dt = reward + Qcf - Qc
-        print reward + Qcf - Qc
+        #if (state, p):
+        #    print dt
+        #print reward + Qcf, - Qc
+        #print numpy.linalg.norm(f)**2
+        #1/0
+        #errors.append(dt)
 
         #print state, nextState
         #1/0
-        dr = (0.99)**(t) * dt * f / (numpy.linalg.norm(f)**2)
+        dr = (0.999)**t * (0.995)**i * dt * f / (numpy.linalg.norm(f)**2)
         rv = rv + dr
 
         #print numpy.linalg.norm(dr)
 
+        if nextState is None:
+            #print i, (0.75)**i
+            errors.append(i)
+            break
+
         state = nextState
         p = np
-
+    print rv
+    #plt.plot(errors)
+    #plt.show()
+    print 'hi', numpy.mean(errors[-20:])
 
     #1/0
         #print rv
@@ -334,11 +402,12 @@ import bisect
 
 vs = []
 
-for r in range(1):
-    state, p = (tuple([0] * w * h), 0)
+for r in range(1000):
+    state, p = (tuple([0] * w * h), numpy.random.randint(len(pieces)))
     total = 0.0
 
-    for i in range(50):
+    #print 'HI', p
+    for i in range(N):
         f = numpy.array(features(state, p))
 
         Qc = rv.dot(f)
@@ -348,32 +417,44 @@ for r in range(1):
             for o in range(w):
                 nextState, reward = getNextRealState(state, p, r, o)
 
-                if nextState != None:
-                    nextJs[(r, o)] = reward + Qc
+                if reward is not None:
+                    nextJs[(r, o)] = reward
 
-        if len(nextJs) == 0:
-            break
+                    if nextState is not None:
+                        for np in range(3):
+                            nf = numpy.array(features(nextState, np))
+
+                            nextJs[(r, o)] += odist[0, p] * rv.dot(nf)
 
         (rr, o), Jp = sorted(nextJs.items(), key = lambda x : x[1])[0]
 
         nextState, reward = getNextRealState(state, p, rr, o)
 
-        print numpy.array(nextState).reshape((h, w))
+        #if nextState != None:
+         #   print nextJs, rr, o
+        #    print numpy.array(nextState).reshape((h, w))
 
         #board2state(numpy.array(nextState).reshape(w, h))
 
-        if nextState != None:
-            state = nextState
+        if reward != None:
             total += reward
+            if nextState != None:
 
-            qdist = numpy.zeros((1, len(pieces)))
-            qdist[0, p] = 1.0
+                state = nextState
 
-            odist = qdist.dot(P)
+                qdist = numpy.zeros((1, len(pieces)))
+                qdist[0, p] = 1.0
 
-            r = numpy.random.random() * sum(odist)
+                odist = qdist.dot(P)
 
-            p = bisect.bisect_left(numpy.cumsum(odist), r)
+                r = numpy.random.random() * sum(odist)
+
+                p = bisect.bisect_left(numpy.cumsum(odist), r)
+
+                #print p
+            else:
+                #print 'Finish'
+                break
 
     vs.append(total)
 
