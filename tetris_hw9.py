@@ -3,7 +3,8 @@
 import numpy
 import itertools
 import time
-
+import sklearn.linear_model
+import sklearn.svm
 
 #%%
 
@@ -35,8 +36,8 @@ def memoize(f):
             return ret
     return memodict(f)
 #%%
-h = 5
-w = 5
+h = 8
+w = 8
 
 pieces = [numpy.array([[1, 1], [1, 1]]).astype('uint8'),
           numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
@@ -109,101 +110,40 @@ print numpy.array(getNextRealState(state, p, rr, o)[0]).reshape((h, w))
 #getNextState((1, 2, 3, 3), 0, 3, 1)
 
 #%%
+import tensorflow as tf
+sess = tf.InteractiveSession()
+#%%
+ILsize = 100
+
+x = tf.placeholder(tf.float32, [None, w * h])
+y_ = tf.placeholder(tf.float32, [None, 1])
+
+W1 = tf.Variable(tf.truncated_normal([w * h, ILsize], stddev = 0.1))
+b1 = tf.Variable(tf.truncated_normal([ILsize], stddev = 0.1))
+W2 = tf.Variable(tf.truncated_normal([ILsize, 1], stddev = 0.1))
+b2 = tf.Variable(tf.truncated_normal([1], stddev = 0.1))
+y1 = tf.matmul(x, W1) + b1
+e = tf.tanh(y1)
+y = tf.matmul(e, W2) + b2
+
+loss = tf.nn.l2_loss(y - y_)
+train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss)#Adam
+
+
+init = tf.initialize_all_variables()
+
+
+#%%
 import bisect
 
 vs = []
 
 ft = 0.0
-@memoize2
-def features(args):
-    state, p = args
-    #state = args
-    morestate = []
-    morestate2 = []
-    morestate3 = []
-    morestate4 = []
-
-    for i in range(len(state) - 1):
-        morestate.append(state[i] | state[i + 1])
-        morestate.append(state[i] ^ state[i + 1])
-        morestate.append(state[i] & state[i + 1])
-
-    #for i in range(len(morestate) - 1):
-    #    morestate2.append(morestate[i] | morestate[i + 1])
-    #    morestate2.append(morestate[i] ^ morestate[i + 1])
-    #    morestate2.append(morestate[i] & morestate[i + 1])
-
-    #for i in range(len(morestate2) - 1):
-    #    morestate3.append(morestate2[i] | morestate2[i + 1])
-    #    morestate3.append(morestate2[i] ^ morestate2[i + 1])
-    #    morestate3.append(morestate2[i] & morestate2[i + 1])
-
-    state = numpy.array(state)
-
-    state = numpy.concatenate((state, morestate))#, morestate2, morestate3
-
-    state = numpy.concatenate((state, 1 - state))
-
-    #nstate = [[0] * len(state)] * len(pieces)
-    #nstate[p] = state
-
-    out = state#numpy.concatenate(nstate)
-
-
-    #holes = 0.0
-    #for j in range(w):
-    #    for hi in hs:
-    #        for i in range(hi):
-    #            if state[i, j] == 0.0:
-     #               holes += 1
-
-    #features.append(holes)
-    piece = numpy.zeros(len(pieces))
-    piece[p] = 1.0
-
-    out = numpy.concatenate((state, piece))
-
-    return out
-
-if False:
-    heights = numpy.zeros((h, w))
-
-    state = numpy.array(state).reshape(h, w)
-
-    hs = []
-
-    for j in range(w):
-        i = 0
-        while i <= h:
-            if i == h:
-                hs.append(h)
-                break
-            if state[i, j] == 0:
-                hs.append(i)
-                break
-            #print i
-            i += 1
-
-    dhs = []
-    for i in range(len(hs) - 1):
-        dhs.append(hs[i + 1] - hs[i])
-
-    features = []
-    for hi in hs:
-        v = numpy.zeros(h + 1)
-        v[hi] = 1.0
-        features.extend(v)
-
-    for hi in dhs:
-        v = numpy.zeros(2 * h + 1)
-        v[hi + h] = 1.0
-        features.extend(v)
-    #return out
 
 N = 200
 
 P = numpy.ones((len(pieces), len(pieces))) / float(len(pieces))
-rv = numpy.random.random(len(features((tuple([0] * w * h), p)))) * 0.0#01
+#rv = numpy.random.random(len(features(tuple([0] * w * h)))) * 0.0#01
 
 tmp = time.time()
 il = 0.0
@@ -211,23 +151,52 @@ sel = 0.0
 errors = []
 run_lengths = []
 rewards = []
-T = 0.25
+T = 100.0
+
+#sg = sklearn.linear_model.SGDRegressor()
+sg = sklearn.svm.LinearSVR()
+
+#sg.partial_fit(numpy.array(tuple([0] * w * h)).reshape(1, -1), [-0.0])
+sg.fit(numpy.array(tuple([0] * w * h)).reshape(1, -1), [-0.0])
+
+sess.run(init)
+
+
 odist = numpy.ones(len(pieces)) / len(pieces)
 
-for t in range(10001):
+Qcfs = []
+Qcs = []
+fvs = []
+for t in range(4001):
     state, p = (tuple([0] * w * h), numpy.random.randint(0, len(pieces)))#
     score = 0.0
 
-    Qcfs = []
-    Qcs = []
-    fvs = []
+    if len(fvs) > 1000:
+        fvs = numpy.array(fvs).astype('float')
+        Qcfs = numpy.array(Qcfs).reshape(-1, 1)
 
-    z = None
+        for i in range(1):
+          _, l = sess.run([train_step, loss], feed_dict = {x : fvs, y_ : Qcfs})
+
+          print l
+        #sg.partial_fit(numpy.array(fvs), numpy.array(Qcfs))
+        #sg.fit(numpy.array(fvs), numpy.array(Qcfs))
+        errors.extend(numpy.array(Qcfs) - numpy.array(Qcs))
+
+        #if t > 500:
+        #    1/0
+        Qcfs = []
+        Qcs = []
+        fvs = []
+        #print 'train'
 
     for i in range(N):
-        f = numpy.array(features((state, p)))
+        f = numpy.array(state)
 
-        Qc = rv.dot(f)
+        #Qc = rv.dot(f)
+        Qc = y.eval(feed_dict = { x : f.reshape(1, -1).astype('float')})[0][0]
+
+        #Qc = sg.predict(f.reshape(1, -1))[0]
 
         tmp1 = time.time()
         nextJs = []
@@ -239,8 +208,9 @@ for t in range(10001):
                     total = reward
 
                     if nextState is not None:
-                        for np in range(len(pieces)):
-                            total += 1.0 * rv.dot(features((nextState, np))) / 3.0
+                        #total += sg.predict(numpy.array(nextState).reshape(1, -1))[0]
+                        total += y.eval(feed_dict = { x : numpy.array(nextState).reshape(1, -1).astype('float')})[0][0]
+                        #total += rv.dot(features(nextState))
 
                     nextJs.append(((r, o), total))
 
@@ -248,22 +218,16 @@ for t in range(10001):
 
         tmp1 = time.time()
 
-        if t > 50:
-            (r, o), Jp = sorted(nextJs, key = lambda x : x[1])[0]
-        else:
-        #if True:
+        #if t > 50:
+        #    (r, o), Jp = sorted(nextJs, key = lambda x : x[1])[0]
+        #else:
+        if True:
             Js = numpy.array([Jp for uopt, Jp in nextJs])
-
             temperature = T * numpy.power(0.99, t) * 1.0 / (1 + numpy.exp(-i + 2)) + 0.1
-
             exps = numpy.exp(-Js / temperature)
-
             probs = exps
-
             r = numpy.random.random() * probs.sum()
-
             uopt, Jp = nextJs[bisect.bisect_left(numpy.cumsum(probs), r)]
-
             r, o = uopt
 
         nextState, reward = getNextRealState((state, p, r, o))
@@ -272,53 +236,33 @@ for t in range(10001):
 
         np = bisect.bisect_left(numpy.cumsum(odist), r)
 
-        #print np
-
         if nextState is not None:
-            Qcf = rv.dot(features((nextState, np)))
+            #Qcf = sg.predict(numpy.array(nextState).reshape(1, -1))[0]
+            Qcf = y.eval(feed_dict = { x : numpy.array(nextState).reshape(1, -1).astype('float')})[0][0]
         else:
             Qcf = 0.0
 
         score += reward
 
-        dt = reward + 1.0 * Qcf - Qc
+        #dt = reward + 0.9 * Qcf - Qc
 
-        #Qcfs.append(reward + 1.0 * Qcf)
-        #Qcs.append(Qc)
-        #fvs.append(f)
-
-        if z is not None:
-            z = 0.5 * z + f / f.dot(f)
-        else:
-            z = f / f.dot(f)
-
-        dr = 0.05 * dt * z#
-        rv = rv + dr
-        errors.append(numpy.linalg.norm(dr))
+        Qcfs.append(reward + 1.0 * Qcf)
+        Qcs.append(Qc)
+        fvs.append(f)
 
         if nextState is None:
-            #print 1.0 / (1.0 + numpy.exp(-i + 2.5 + t / 1000.0))
             break
 
         state = nextState
         p = np
         sel += time.time() - tmp1
-        #1/0
-    #for Qcf, Qc, f in zip(Qcfs, Qcs, fvs):
 
-    #1/0
-    #print t
     run_lengths.append(i)
     rewards.append(score)
 
     if t % 50 == 0:
         print t, numpy.mean(run_lengths[-50:]), numpy.mean(errors[-50:]), numpy.mean(rewards[-50:]), temperature
 
-    #1/0
-        #print rv
-
-    #Js[i][(state, p)] = Jp
-    #us[i][(state, p)] = uopt
 print "Total: ", time.time() - tmp
 print "Features: ", ft
 print "Inner loop: ", il
@@ -342,9 +286,7 @@ for rpts in range(100):
 
     #print 'HI', p
     for i in range(N):
-        f = numpy.array(features(state))
-
-        Qc = rv.dot(f)
+        Qc = sg.predict(numpy.array(state).reshape(1, -1))[0]
 
         nextJs = []
         for r in range(4):
@@ -355,7 +297,7 @@ for rpts in range(100):
                     t = reward
 
                     if nextState is not None:
-                        t += rv.dot(features(nextState))
+                        t += sg.predict(numpy.array(nextState).reshape(1, -1))[0]
 
                     nextJs.append(((r, o), t))
 
