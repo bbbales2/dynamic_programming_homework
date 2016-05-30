@@ -3,18 +3,18 @@
 import numpy
 import itertools
 import time
-
+import collections
 
 #%%
 
-h = 3
-w = 3
+h = 5
+w = 5
 
 pieces = [numpy.array([[0, 1], [1, 1]]).astype('uint8'),
           numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
           numpy.array([[1], [1]]).astype('uint8')]
 
-#%%
+
 def memoize2(f):
     """ Memoization decorator for a function taking a single argument """
     class memodict(dict):
@@ -23,20 +23,9 @@ def memoize2(f):
             return ret
     return memodict().__getitem__
 
-def memoize(f):
-    """ Memoization decorator for functions taking one or more arguments. """
-    class memodict(dict):
-        def __init__(self, f):
-            self.f = f
-        def __call__(self, *args):
-            return self[args]
-        def __missing__(self, key):
-            ret = self[key] = self.f(*key)
-            return ret
-    return memodict(f)
-
-h = 8
-w = 8
+#%%
+h = 5
+w = 5
 
 pieces = [numpy.array([[1, 1], [1, 1]]).astype('uint8'),
           numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
@@ -46,14 +35,14 @@ pieces = [numpy.array([[1, 1], [1, 1]]).astype('uint8'),
          numpy.array([[0, 0, 1], [1, 1, 1]]).astype('uint8'),
          numpy.array([[1, 0, 0], [1, 1, 1]]).astype('uint8')]
 
-
+#%%
 
 @memoize2
 def getNextRealState(args):
     state, p, r, o = args
     piece = pieces[p]
 
-    estate = numpy.zeros((4 + h, w)).astype('uint8')
+    estate = numpy.zeros((2 * h, w)).astype('uint8')
     estate[: h] = numpy.array(state).reshape(h, w)
 
     p = piece
@@ -70,7 +59,7 @@ def getNextRealState(args):
     #print p
 
     if o <= w - p.shape[1]:
-        for d in range(4 + h - p.shape[0], -1, -1):
+        for d in range(2 * h - p.shape[0], -1, -1):
             if (estate[d : d + p.shape[0], o : o + p.shape[1]] * p).flatten().sum() != 0:
                 break
 
@@ -95,18 +84,13 @@ def getNextRealState(args):
                 newState[row2 - 1] = newState[row2]
                 newState[row2] = 0
 
-        for i in range(h, 4 + h):
+        for i in range(h, 2 * h):
             if newState[i].sum() != 0:
                 return None, reward
 
         return tuple(newState[:h].flatten()), reward
     else:
         return None, None
-
-print numpy.array(state).reshape((h, w))
-print numpy.array(getNextRealState(state, p, rr, o)[0]).reshape((h, w))
-
-#getNextState((1, 2, 3, 3), 0, 3, 1)
 
 #%%
 import bisect
@@ -119,64 +103,46 @@ def features(args):
     tmp = time.time()
     state, p = args
     morestate = []
-    morestate2 = []
-    morestate3 = []
-    morestate4 = []
 
     for i in range(len(state) - 1):
-        morestate.append(state[i] | state[i + 1])
-        morestate.append(state[i] ^ state[i + 1])
-        morestate.append(state[i] & state[i + 1])
+        morestate.append(state[i] * state[i + 1])
 
-    for i in range(len(morestate) - 1):
-        morestate2.append(morestate[i] | morestate[i + 1])
-        morestate2.append(morestate[i] ^ morestate[i + 1])
-        morestate2.append(morestate[i] & morestate[i + 1])
+    state = numpy.array(state).copy() - 0.5
 
-    state = numpy.array(state)
+    state = numpy.concatenate((state, morestate))
 
-    state = numpy.concatenate((state, morestate, morestate2))
+    nstate = [[0] * len(state)] * len(pieces)
+    nstate[p] = state
 
-    state = numpy.concatenate((state, 1 - state))
-
-    #nstate = [[0] * len(state)] * len(pieces)
-    #nstate[p] = state
-
-    out = state#numpy.concatenate(nstate)
+    out = numpy.concatenate(nstate)
 
     global ft
     ft += time.time() - tmp
     return out
 
-N = 200
+N = 2000
 
 P = numpy.ones((len(pieces), len(pieces))) / float(len(pieces))
-rv = numpy.random.random(len(features((tuple([0] * w * h), numpy.random.randint(0, len(pieces)))))) * 0.0#01
+rv = numpy.random.random(len(features((tuple([0] * w * h), numpy.random.randint(0, len(pieces)))))) * 0.0
 
 tmp = time.time()
 il = 0.0
 sel = 0.0
 errors = []
 run_lengths = []
-rewards = []
-T = 0.25
+T = 1.0
 
 odist = numpy.ones(len(pieces)) / len(pieces)
 
-for t in range(2001):
+Q = collections.defaultdict(lambda : 0)
+
+alpha = 0.25
+
+for t in range(1000):
     state, p = (tuple([0] * w * h), numpy.random.randint(0, len(pieces)))#
-    score = 0.0
+    total = 0.0
 
-    for i in range(N):
-        f = numpy.array(features((state, p)))
-
-        Qc = rv.dot(f)
-
-        #qdist = numpy.zeros((1, len(pieces)))
-        #qdist[0, p] = 1.0
-
-        #odist = qdist.dot(P)
-
+    for i in range(10):
         tmp1 = time.time()
         nextJs = []
         for r in range(4):
@@ -184,13 +150,7 @@ for t in range(2001):
                 nextState, reward = getNextRealState((state, p, r, o))
 
                 if reward is not None:
-                    total = reward
-
-                    if nextState is not None:
-                        for np in range(3):
-                            total += rv.dot(features((nextState, np))) / len(pieces)
-
-                    nextJs.append(((r, o), total))
+                    nextJs.append(((r, o), Q[(state, p, r, o)]))
 
         il += time.time() - tmp1
 
@@ -198,7 +158,7 @@ for t in range(2001):
 
         Js = numpy.array([Jp for uopt, Jp in nextJs])
 
-        temperature = T * numpy.power(0.99, t) * 1.0 / (1 + numpy.exp(-i + 2)) + 0.1
+        temperature = T * numpy.power(0.9995, t) * 1.0 / (1 + numpy.exp(-i + 2)) + 0.10
 
         #print temperature, i
 
@@ -214,41 +174,40 @@ for t in range(2001):
 
         if t > 50:
             (r, o), Jp = sorted(nextJs, key = lambda x : x[1])[0]
+
         nextState, reward = getNextRealState((state, p, r, o))
 
-        r = numpy.random.random()# * odist.sum() -- this sum is always 1.0
+        np = bisect.bisect_left(numpy.cumsum(odist), numpy.random.random())
 
-        np = bisect.bisect_left(numpy.cumsum(odist), r)
+        nextJs2 = []
+        for r1 in range(4):
+            for o1 in range(w):
+                if (nextState, np, r1, o1) in Q:
+                    nextJs2.append(((r1, o1), Q[(nextState, np, r1, o1)]))
 
-        if nextState is not None:
-            Qcf = rv.dot(features((nextState, np)))
+        if len(nextJs2) > 0:
+            uopt2, Jn = sorted(nextJs2, key = lambda x : x[1])[0]
         else:
-            Qcf = 0.0
+            Jn = 0
 
-        score += reward
-        dt = reward + Qcf - Qc
-
-        dr = numpy.power(0.999, t) * 0.025 * dt * f / f.dot(f)#
+        Q[(state, p, r, o)] = (1 - alpha) * Q[(state, p, r, o)] + alpha * (reward + Jn)
 
         #if reward < 0:
         #    1/0
-        rv = rv + dr
 
         if nextState is None:
-            #print 1.0 / (1.0 + numpy.exp(-i + 2.5 + t / 1000.0))
             break
 
         state = nextState
         p = np
         sel += time.time() - tmp1
     #1/0
-    #print t
-    errors.append(numpy.linalg.norm(dr))
+    errors.append(reward + Jn)
     run_lengths.append(i)
-    rewards.append(score)
+    print t
 
     if t % 50 == 0:
-        print t, numpy.mean(run_lengths[-50:]), numpy.mean(errors[-50:]), numpy.mean(rewards[-50:]), temperature
+        print t, numpy.mean(run_lengths[-50:]), numpy.mean(errors[-50:]), temperature
 
     #1/0
         #print rv
@@ -259,6 +218,30 @@ print "Total: ", time.time() - tmp
 print "Features: ", ft
 print "Inner loop: ", il
 print "Selection time: ", sel
+#%%
+for (state, p, r, o), v in Q.items():
+    print (state, p, r, o), v
+#%%
+            for (state1, p1, r2, o2), v in Q.items():
+                nextJs2 = []
+                for r1 in range(4):
+                    for o1 in range(w):
+                        nextState1, reward = getNextRealState((state1, p1, r1, o1))
+
+                        for np2 in range(len(pieces)):
+                            if (nextState1, np2, r1, o1) in Q:
+                                nextJs2.append(((r1, o1), Q[(nextState, np, r1, o1)]))
+
+            Q[(state, p, r, o)] = (1 - alpha) * Q[(state, p, r, o)] + alpha * (reward + Jn)
+
+        if len(nextJs2) > 0:
+            uopt2, Jn = sorted(nextJs2, key = lambda x : x[1])[0]
+        else:
+            Jn = 0
+            #print state, p, r, o
+            #print 'hi'
+            #1/0
+
 #%%
 
             #board2state(numpy.array(nextState).reshape(w, h))
@@ -276,8 +259,8 @@ for rpts in range(100):
     state, p = (tuple([0] * w * h), numpy.random.randint(len(pieces)))
     total = 0.0
 
-    #print 'HI', p
-    for i in range(N):
+    print 'HI', p
+    for i in range(10):
         f = numpy.array(features((state, p)))
 
         Qc = rv.dot(f)
@@ -288,13 +271,7 @@ for rpts in range(100):
                 nextState, reward = getNextRealState((state, p, r, o))
 
                 if reward is not None:
-                    t = reward
-
-                    if nextState is not None:
-                        for np in range(len(pieces)):
-                            t += rv.dot(features((nextState, np))) / len(pieces)
-
-                    nextJs.append(((r, o), t))
+                    nextJs.append(((r, o), Q[(state, p, r, o)]))
 
         (r, o), Jp = sorted(nextJs, key = lambda x : x[1])[0]
 
@@ -309,10 +286,12 @@ for rpts in range(100):
                 r = numpy.random.random() * sum(odist)
 
                 p = bisect.bisect_left(numpy.cumsum(odist), r)
+
+                #print p
             else:
+                #print 'Finish'
                 break
 
-    print total
     vs.append(total)
 
 print numpy.mean(vs), numpy.std(vs)
