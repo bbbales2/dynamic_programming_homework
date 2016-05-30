@@ -7,8 +7,8 @@ import time
 
 #%%
 
-h = 3
-w = 3
+h = 5
+w = 5
 
 pieces = [numpy.array([[0, 1], [1, 1]]).astype('uint8'),
           numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
@@ -142,7 +142,7 @@ def features(args):
 
     state = numpy.concatenate((state, morestate))#, morestate2, morestate3
 
-    state = numpy.concatenate((state, 1 - state))
+    #state = numpy.concatenate((state))#, 1 - state
 
     #nstate = [[0] * len(state)] * len(pieces)
     #nstate[p] = state
@@ -240,7 +240,7 @@ for t in range(10001):
 
                     if nextState is not None:
                         for np in range(len(pieces)):
-                            total += 1.0 * rv.dot(features((nextState, np))) / 3.0
+                            total += 0.9 * rv.dot(features((nextState, np))) / len(pieces)
 
                     nextJs.append(((r, o), total))
 
@@ -253,18 +253,21 @@ for t in range(10001):
         else:
         #if True:
             Js = numpy.array([Jp for uopt, Jp in nextJs])
+            Js /= max(numpy.abs(Js))
 
             temperature = T * numpy.power(0.99, t) * 1.0 / (1 + numpy.exp(-i + 2)) + 0.1
 
             exps = numpy.exp(-Js / temperature)
 
-            probs = exps
+            probs = exps / exps.sum()
 
-            r = numpy.random.random() * probs.sum()
+            r = numpy.random.random()
 
             uopt, Jp = nextJs[bisect.bisect_left(numpy.cumsum(probs), r)]
 
             r, o = uopt
+
+            #print uopt
 
         nextState, reward = getNextRealState((state, p, r, o))
 
@@ -281,22 +284,23 @@ for t in range(10001):
 
         score += reward
 
-        dt = reward + 1.0 * Qcf - Qc
+        dt = reward + 0.9 * Qcf - Qc
 
         #Qcfs.append(reward + 1.0 * Qcf)
         #Qcs.append(Qc)
         #fvs.append(f)
 
         if z is not None:
-            z = 0.5 * z + f / f.dot(f)
+            z = 0.75 * z + f / f.dot(f)
         else:
             z = f / f.dot(f)
 
-        dr = 0.05 * dt * z#
+        dr = 0.05 * dt * z / numpy.linalg.norm(z)#
         rv = rv + dr
         errors.append(numpy.linalg.norm(dr))
 
         if nextState is None:
+            #print z
             #print 1.0 / (1.0 + numpy.exp(-i + 2.5 + t / 1000.0))
             break
 
@@ -342,7 +346,7 @@ for rpts in range(100):
 
     #print 'HI', p
     for i in range(N):
-        f = numpy.array(features(state))
+        f = numpy.array(features((state, p)))
 
         Qc = rv.dot(f)
 
@@ -355,11 +359,15 @@ for rpts in range(100):
                     t = reward
 
                     if nextState is not None:
-                        t += rv.dot(features(nextState))
+                        for np in range(len(pieces)):
+                            t += 1.0 * rv.dot(features((nextState, np))) / len(pieces)
 
                     nextJs.append(((r, o), t))
 
         (r, o), Jp = sorted(nextJs, key = lambda x : x[1])[0]
+
+        print r, o, nextJs
+        1/0
 
         nextState, reward = getNextRealState((state, p, r, o))
 
