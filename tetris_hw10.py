@@ -4,7 +4,6 @@ import numpy
 import itertools
 import time
 
-
 #%%
 
 h = 3
@@ -45,49 +44,63 @@ pieces = [numpy.array([[1, 1], [1, 1]]).astype('uint8'),
          numpy.array([[0, 1, 0], [1, 1, 1]]).astype('uint8'),
          numpy.array([[0, 0, 1], [1, 1, 1]]).astype('uint8'),
          numpy.array([[1, 0, 0], [1, 1, 1]]).astype('uint8')]
+         
+#%%
+pieces2 = []
+
+for p, piece in enumerate(pieces):
+    ps = []
+    
+    p1 = piece.copy()
+    ps.append(p1)
+    
+    p2 = numpy.fliplr(p1).transpose()
+    ps.append(p2)
+    
+    p3 = numpy.fliplr(p2).transpose()
+    ps.append(p3)
+    
+    p4 = numpy.fliplr(p3).transpose()
+    ps.append(p4)
+
+    ps2 = []    
+    for piece in ps:
+        pls = []
+
+        for j in range(piece.shape[1]):
+            for i in range(piece.shape[0]):
+                if piece[i, j] == 1:
+                    break
+
+            pls.append(-i)
+        ps2.append((piece, pls))
+    
+    pieces2.append(ps2)
+    
+pieces = pieces2
 
 #%%
-@memoize2
+def getHeight(state):
+    state = numpy.array(state).reshape(h, w)
+    
+    hs = [0] * w
+
+    for j in range(w):
+        for i in range(h - 1, -1, -1):
+            if state[i, j] > 0:
+                hs[j] = i + 1
+                break
+
+    return hs
+
+#@memoize2
 def getNextRealState(args):
-    state, p, r, o = args
-    piece = pieces[p]
+    global sel
+    state, p, r, o, hs = args
+    p, pls = pieces[p][r]
 
     estate = numpy.zeros((4 + h, w)).astype('uint8')
     estate[: h] = numpy.array(state).reshape(h, w)
-
-    p = piece
-
-    if r > 0:
-        p = numpy.fliplr(p).transpose()
-
-    if r > 1:
-        p = numpy.fliplr(p).transpose()
-
-    if r > 2:
-        p = numpy.fliplr(p).transpose()
-
-    #print p
-    pls = []
-
-    for j in range(p.shape[1]):
-        for i in range(p.shape[0]):
-            if p[i, j] == 1:
-                break
-        pls.append(-i)
-
-    hs = []
-
-    for j in range(w):
-        i = h - 1
-        while i >= -1:
-            if i == -1:
-                hs.append(0)
-                break
-
-            if estate[i, j] > 0:
-                hs.append(i + 1)
-                break
-            i -= 1
 
     if o <= w - p.shape[1]:
         of = []
@@ -96,14 +109,22 @@ def getNextRealState(args):
 
         d = max(of)
 
-        newState = numpy.array(estate).astype('uint8')
-        newState[d : d + p.shape[0], o : o + p.shape[1]] += p
+        newState = estate
+        for i in range(p.shape[0]):
+            for j in range(p.shape[1]):
+                newState[d + i, o + j] += p[i, j]
+        #newState[d : d + p.shape[0], o : o + p.shape[1]] += p
 
         reward = 0
         removeRows = []
 
-        for k in range(0, estate.shape[0]):
-            if newState[k, :].sum() == w:
+        tmp1 = time.time()
+        for k in range(d, d + p.shape[0]):
+            total = 0.0
+            for j in range(w):
+                total += newState[k, j]
+                
+            if total == w:
                 removeRows.append(k)
                 reward += -1
 
@@ -115,16 +136,18 @@ def getNextRealState(args):
                 newState[row2] = 0
 
         for i in range(h, 4 + h):
-            if newState[i].sum() != 0:
-                return None, reward
+            for j in range(w):
+                if newState[i, j] != 0:
+                    return None, reward
 
+        sel += time.time() - tmp1
         return tuple(newState[:h].flatten()), reward
     else:
         return None, None
-nextState, reward = getNextRealState(((0, 1, 1, 0, 0, 0, 0, 0, 0), 0, 0, 0))
+#nextState, reward = getNextRealState(((0, 1, 1, 0, 0, 0, 0, 0, 0), 0, 0, 0))
 
-print numpy.reshape(nextState, (h, w))
-#%%
+#print numpy.reshape(nextState, (h, w))
+
 import bisect
 
 vs = []
@@ -132,23 +155,13 @@ vs = []
 ft = 0.0
 @memoize2
 def features(args):
+    global sel
     state, p = args
     heights = numpy.zeros((h, w))
 
-    state = numpy.array(state).reshape(h, w)
-
-    hs = []
-
-    for j in range(w):
-        i = h - 1
-        while i >= -1:
-            if i == -1:
-                hs.append(0)
-                break
-            if state[i, j] == 1:
-                hs.append(i + 1)
-                break
-            i -= 1
+    hs = getHeight(state)
+    
+    state = numpy.reshape(state, (h, w))
 
     dhs = []
     for i in range(len(hs) - 1):
@@ -157,10 +170,6 @@ def features(args):
     features = [1.0]
 
     features.extend(hs)
-    #for hi in hs:
-    #    v = numpy.zeros(h + 1)
-    #    v[hi] = 1.0
-    #    features.extend(v)
 
     for hi in dhs:
     #    v = numpy.zeros(h + 1)
@@ -235,7 +244,7 @@ rb = 0.0
 #alpha = 1.0,
 guess_next = 0.0
 recordings = []
-for t in range(501):
+for t in range(251):
     if t > 0 and t % 100 == 0:
         tmp1 = time.time()
         Xs = []
@@ -276,9 +285,11 @@ for t in range(501):
 
         nextJs = []
         tmp1 = time.time()
+        height = getHeight(state)
+        
         for r in range(4):
             for o in range(w):
-                nextState, reward = getNextRealState((state, p, r, o))
+                nextState, reward = getNextRealState((state, p, r, o, height))
 
                 if reward is not None:
                     total = reward
@@ -295,7 +306,7 @@ for t in range(501):
 
         (r, o), Jp = sorted(nextJs, key = lambda x : x[1])[0]
 
-        nextState, reward = getNextRealState((state, p, r, o))
+        nextState, reward = getNextRealState((state, p, r, o, getHeight(state)))
 
         #print (r, o), nextJs
         #print numpy.reshape(nextState, (h, w))
@@ -328,7 +339,7 @@ for t in range(501):
     rewards.append(score)
     recordings.append(recording)
 
-    if t % 1 == 0:
+    if t % 50 == 0:
         print t, numpy.mean(run_lengths), numpy.mean(rewards)
 
     #1/0
@@ -408,8 +419,7 @@ for rpts in range(100):
                     t = reward
 
                     if nextState is not None:
-                        for np in range(len(pieces)):
-                            t += 1.0 * rv.dot(features((nextState, np))) / len(pieces)
+                        t += 1.0 * rv.dot(features((nextState, np)))
 
                     nextJs.append(((r, o), t))
 

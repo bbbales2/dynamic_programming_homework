@@ -11,62 +11,52 @@ pieces = [numpy.array([[0, 1], [1, 1]]).astype('uint8'),
           numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
           numpy.array([[1], [1]]).astype('uint8')]
 
-pieces2 = []
 
-for piece in pieces:
-    rotations = []
+def getHeight(state):
+    state = numpy.array(state).reshape(h, w)
+    
+    hs = [0] * w
 
-    rotations.append(piece)
-    p = numpy.fliplr(piece).transpose()
-    rotations.append(p)
-    p = numpy.fliplr(p).transpose()
-    rotations.append(p)
-    p = numpy.fliplr(p).transpose()
-    rotations.append(p)
+    for j in range(w):
+        for i in range(h - 1, -1, -1):
+            if state[i, j] > 0:
+                hs[j] = i + 1
+                break
 
-    pieces2.append(rotations)
+    return hs
 
-pieces = pieces2
+#@memoize2
+def getNextRealState(args):
+    global sel
+    state, p, r, o, hs = args
+    p, pls = pieces[p][r]
 
-gns = 0.0
-
-def memoize(f):
-    """ Memoization decorator for functions taking one or more arguments. """
-    class memodict(dict):
-        def __init__(self, f):
-            self.f = f
-        def __call__(self, *args):
-            return self[args]
-        def __missing__(self, key):
-            ret = self[key] = self.f(*key)
-            return ret
-    return memodict(f)
-
-@memoize
-def getNextRealState(state, p, r, o):
-    global gns
-    tmp = time.time()
-    p = pieces[p][r]
-
-    estate = numpy.zeros((2 * h, w)).astype('uint8')
+    estate = numpy.zeros((4 + h, w)).astype('uint8')
     estate[: h] = numpy.array(state).reshape(h, w)
 
     if o <= w - p.shape[1]:
-        for d in range(2 * h - p.shape[0], -1, -1):
-            if (estate[d : d + p.shape[0], o : o + p.shape[1]] * p).flatten().sum() != 0:
-                break
+        of = []
+        for j in range(p.shape[1]):
+            of.append(hs[o + j] + pls[j])
 
-            lastd = d
+        d = max(of)
 
-        d = lastd
-        newState = numpy.array(estate).astype('uint8')
-        newState[d : d + p.shape[0], o : o + p.shape[1]] += p
+        newState = estate
+        for i in range(p.shape[0]):
+            for j in range(p.shape[1]):
+                newState[d + i, o + j] += p[i, j]
+        #newState[d : d + p.shape[0], o : o + p.shape[1]] += p
 
         reward = 0
         removeRows = []
 
-        for k in range(0, estate.shape[0]):
-            if newState[k, :].sum() == w:
+        tmp1 = time.time()
+        for k in range(d, d + p.shape[0]):
+            total = 0.0
+            for j in range(w):
+                total += newState[k, j]
+                
+            if total == w:
                 removeRows.append(k)
                 reward += -1
 
@@ -77,15 +67,14 @@ def getNextRealState(state, p, r, o):
                 newState[row2 - 1] = newState[row2]
                 newState[row2] = 0
 
-        for i in range(h, 2 * h):
-            if newState[i].sum() != 0:
-                gns += time.time() - tmp
-                return None, reward
+        for i in range(h, 4 + h):
+            for j in range(w):
+                if newState[i, j] != 0:
+                    return None, reward
 
-        gns += time.time() - tmp
+        sel += time.time() - tmp1
         return tuple(newState[:h].flatten()), reward
     else:
-        gns += time.time() - tmp
         return None, None
 
 def run(N, NT, T, lT, lI):
