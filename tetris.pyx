@@ -4,17 +4,68 @@ import itertools
 import bisect
 import time
 
-cdef int h = 3
-cdef int w = 3
+cimport numpy
 
-pieces = [numpy.array([[0, 1], [1, 1]]).astype('uint8'),
-          numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
-          numpy.array([[1], [1]]).astype('uint8')]
+from cython import array
 
+h_ = 14
+w_ = 8
+
+pieces = [numpy.array([[1, 1], [1, 1]]).astype('int'),
+          numpy.array([[0, 1, 1], [1, 1, 0]]).astype('int'),
+          numpy.array([[1, 1, 0], [0, 1, 1]]).astype('int'),
+         numpy.array([[1], [1], [1], [1]]).astype('int'),
+         numpy.array([[0, 1, 0], [1, 1, 1]]).astype('int'),
+         numpy.array([[0, 0, 1], [1, 1, 1]]).astype('int'),
+         numpy.array([[1, 0, 0], [1, 1, 1]]).astype('int')]
+
+#h_ = 20
+#w_ = 8
+
+#pieces = [numpy.array([[0, 1], [1, 1]]).astype('int'),
+#          numpy.array([[0, 1, 1], [1, 1, 0]]).astype('int'),
+#          numpy.array([[1], [1]]).astype('int')]
+
+
+cdef int h = h_
+cdef int w = w_
+
+pieces2 = []
+
+for p, piece in enumerate(pieces):
+    ps = []
+
+    p1 = piece.copy()
+    ps.append(p1)
+
+    p2 = numpy.fliplr(p1).transpose()
+    ps.append(p2)
+
+    p3 = numpy.fliplr(p2).transpose()
+    ps.append(p3)
+
+    p4 = numpy.fliplr(p3).transpose()
+    ps.append(p4)
+
+    ps2 = []
+    for piece in ps:
+        pls = []
+
+        for j in range(piece.shape[1]):
+            for i in range(piece.shape[0]):
+                if piece[i, j] == 1:
+                    break
+
+            pls.append(-i)
+        ps2.append((piece, pls))
+
+    pieces2.append(ps2)
+
+pieces = pieces2
 
 def getHeight(state):
     state = numpy.array(state).reshape(h, w)
-    
+
     hs = [0] * w
 
     for j in range(w):
@@ -27,68 +78,117 @@ def getHeight(state):
 
 #@memoize2
 def getNextRealState(args):
-    global sel
-    state, p, r, o, hs = args
-    p, pls = pieces[p][r]
+    #tmp1 = time.time()
 
-    estate = numpy.zeros((4 + h, w)).astype('uint8')
-    estate[: h] = numpy.array(state).reshape(h, w)
+    cdef int pi, r, d, o, i, j, k, nrowsr, row, row2, ps0, ps1
+    cdef float total, reward
+    cdef numpy.ndarray[numpy.int_t, ndim = 2] estate, p
 
-    if o <= w - p.shape[1]:
+    state, pi, r, o, hs = args
+    p, pls = pieces[pi][r]
+
+    ps0 = p.shape[0]
+    ps1 = p.shape[1]
+
+    if o <= w - ps1:
+        estate = numpy.zeros((4 + h, w), dtype = numpy.int)
+        estate[:h] = numpy.array(state).reshape(h, w)
+
         of = []
-        for j in range(p.shape[1]):
+        for j in range(ps1):
             of.append(hs[o + j] + pls[j])
 
         d = max(of)
 
-        newState = estate
-        for i in range(p.shape[0]):
-            for j in range(p.shape[1]):
-                newState[d + i, o + j] += p[i, j]
+        for i in range(ps0):
+            for j in range(ps1):
+                estate[d + i, o + j] += p[i, j]
         #newState[d : d + p.shape[0], o : o + p.shape[1]] += p
 
         reward = 0
         removeRows = []
+        nrowsr = 0
 
-        tmp1 = time.time()
-        for k in range(d, d + p.shape[0]):
+        for k in range(d, d + ps0):
             total = 0.0
             for j in range(w):
-                total += newState[k, j]
-                
+                total += estate[k, j]
+
             if total == w:
                 removeRows.append(k)
+                nrowsr += 1
                 reward += -1
 
         removeRows = sorted(removeRows, reverse = True)
 
-        for row in removeRows:
-            for row2 in range(row + 1, newState.shape[0]):
-                newState[row2 - 1] = newState[row2]
-                newState[row2] = 0
+        for i in range(nrowsr):
+            row = removeRows[i]
+            for row2 in range(row + 1, h):
+                estate[row2 - 1] = estate[row2]
+                estate[row2] = 0
 
         for i in range(h, 4 + h):
             for j in range(w):
-                if newState[i, j] != 0:
+                if estate[i, j] != 0:
                     return None, reward
 
-        sel += time.time() - tmp1
-        return tuple(newState[:h].flatten()), reward
+        out = []
+        for i in range(h):
+            for j in range(w):
+                out.append(estate[i, j])
+
+        #print time.time() - tmp1
+        return tuple(out), reward
     else:
+        #print time.time() - tmp1
         return None, None
 
+def features(args):
+    state_, p = args
+
+    cdef int i, j, hi, holes
+    cdef numpy.ndarray[numpy.int_t, ndim = 2] state
+    cdef numpy.ndarray[numpy.float_t, ndim = 1] features
+
+    features = numpy.zeros(2 * w + 2)
+    state = numpy.zeros((h, w), dtype = numpy.int)
+
+    for i in range(h):
+        for j in range(w):
+            state[i, j] = state_[i * w + j]
+
+    cdef numpy.ndarray[numpy.int_t, ndim = 1] hs
+    hs = numpy.zeros(w, dtype = numpy.int)
+
+    for j in range(w):
+        for i in range(h - 1, -1, -1):
+            if state[i, j] > 0:
+                hs[j] = i + 1
+                break
+
+    dhs = []
+    features[0] = 1.0
+
+    for i in range(w):
+        features[1 + i] = hs[i]
+
+    for i in range(w - 1):
+        features[1 + w + i] = abs(hs[i + 1] - hs[i])
+
+    features[2 * w] = max(hs)
+
+    holes = 0
+    for j in range(w):
+        hi = hs[j]
+        for i in range(hi):
+            if state[i, j] == 0:
+                holes += 1
+
+    features[2 * w + 1] = float(holes)
+
+    return features
+
 def run(N, NT, T, lT, lI):
-    #h = 14
-    #w = 8
-
-    #pieces = [numpy.array([[1, 1], [1, 1]]).astype('uint8'),
-    #          numpy.array([[0, 1, 1], [1, 1, 0]]).astype('uint8'),
-    #          numpy.array([[1, 1, 0], [0, 1, 1]]).astype('uint8'),
-    #         numpy.array([[1], [1], [1], [1]]).astype('uint8'),
-    #         numpy.array([[0, 1, 0], [1, 1, 1]]).astype('uint8'),
-    #         numpy.array([[0, 0, 1], [1, 1, 1]]).astype('uint8'),
-    #         numpy.array([[1, 0, 0], [1, 1, 1]]).astype('uint8')]
-
     vs = []
 
     def features(state, p):
