@@ -19,8 +19,8 @@ pieces = [numpy.array([[1, 1], [1, 1]]).astype('int'),
          numpy.array([[0, 0, 1], [1, 1, 1]]).astype('int'),
          numpy.array([[1, 0, 0], [1, 1, 1]]).astype('int')]
 
-#h_ = 20
-#w_ = 8
+#h_ = 3
+#w_ = 3
 
 #pieces = [numpy.array([[0, 1], [1, 1]]).astype('int'),
 #          numpy.array([[0, 1, 1], [1, 1, 0]]).astype('int'),

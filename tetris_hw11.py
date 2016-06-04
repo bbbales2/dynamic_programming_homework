@@ -24,7 +24,7 @@ w = tl.w_
 h = tl.h_
 
 P = numpy.ones((Npieces, Npieces)) / float(Npieces)
-rv = numpy.random.random(len(tl.features((tuple([0] * w * h), 0)))) * 0.1
+#rv = numpy.random.random(len(tl.features((tuple([0] * w * h), 0)))) * 0.01
 
 rv[: w] = 0
 rv[w : 2 * w] = 0
@@ -45,7 +45,7 @@ rb = 0.0
 guess_next = 0.0
 recordings = []
 for t in range(1001):
-    if t > 0 and t % 100 == 0:
+    if False:#t > 0 and t % 4 == 0:
         tmp1 = time.time()
         Xs = []
         Ys = []
@@ -126,7 +126,9 @@ for t in range(1001):
             break
 
         dt = reward + Qcf - Qc
-
+#
+        dr = dt * f / (numpy.linalg.norm(f)**2)#(0.99)**t * (0.95)**i *
+        rv = rv + 0.01 * dr
         recording.append((f, Qc, dt))
 
         #if nextState is None:
@@ -141,7 +143,7 @@ for t in range(1001):
     rewards.append(score)
     recordings.append(recording)
 
-    if t > 0 and (t + 1) % 50 == 0:
+    if t > 0 and (t + 1) % 1 == 0:
         print "{0:03d} {1:6.2f} {2:7.2f}".format(t + 1, numpy.mean(run_lengths[-50:]), numpy.mean(rewards[-50:]))
         sys.stdout.flush()
 

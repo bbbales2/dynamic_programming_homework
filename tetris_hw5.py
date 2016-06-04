@@ -30,8 +30,6 @@ def getNextState(state, p, r, o):
     if r > 2:
         p = numpy.fliplr(p).transpose()
 
-    options = []
-
     #print p
 
     if o <= w - p.shape[1]:
@@ -60,14 +58,18 @@ def getNextState(state, p, r, o):
                 newState[row2 - 1] = newState[row2]
                 newState[row2] = 0
 
+        for i in range(h, newState.shape[0]):
+            for j in range(w):
+                if newState[i, j] != 0:
+                    return None, reward
+
         return tuple(newState[:h].flatten()), reward
     else:
         return None, None
 
 
-numpy.reshape(getNextState((0, 0, 0, 0, 0, 0, 0, 0, 0), 0, 3, 1)[0], (w, h))
+#numpy.reshape(getNextState((0, 0, 0, 0, 0, 0, 0, 0, 0), 0, 3, 1)[0], (w, h))
 #%%
-findColumn(state[0], pieces[p])
 #%%
 reachableStates = set()
 for key in itertools.product([0, 1], repeat = w * h):
@@ -100,13 +102,13 @@ for state in reachableStates:
                 lut[(state, p, r, o)] = nextState, reward
 #%%
 #N = 100
-Ns = [20]
+Ns = [100]#range(1, 200)
 Vs = []
 
-#P = numpy.ones((h, w)) / float(w)
-#P = numpy.array([[0.0, 1.0, 0.0],
-#                 [0.0, 0.0, 1.0],
-#                 [1.0, 0.0, 0.0]])
+P = numpy.ones((h, w)) / float(w)
+P = numpy.array([[0.0, 1.0, 0.0],
+                 [0.0, 0.0, 1.0],
+                 [1.0, 0.0, 0.0]])
 
 for N in Ns:
     Js = {}
@@ -124,7 +126,7 @@ for N in Ns:
         print i
         for state in reachableStates:
             for p in range(3):
-                nextJs = {}
+                #nextJs = {}
 
                 qdist = numpy.zeros((1, 3))
                 qdist[0, p] = 1.0
@@ -133,19 +135,38 @@ for N in Ns:
 
                 odist = qdist.dot(P)
 
+                # Worst case analysis version:
+                # We keep a nextJs seperate for each piece and then choose the one with the worst minimum to give to the user
+                nextJs = { 0 : {}, 1 : {}, 2 : {} }
+
                 for r in range(4):
                     for o in range(w):
-                        nextState, reward = lut[(state, p, r, o)]
+                        nextState, reward = lut[(state, p, r, o)]#getNextState
 
-                        if nextState == None:
-                            continue
+                        if reward != None:
+                            c2g = reward
 
-                        c2g = reward
-                        for k in range(3):
-                            c2g += odist[0, k] * Js[i + 1][(nextState, k)]
-                        nextJs[(r, o)] = c2g
+                            # Worst case analysis version:
+                            nextJs[0][(r, o)] = reward
+                            nextJs[1][(r, o)] = reward
+                            nextJs[2][(r, o)] = reward
+                            if nextState != None:
+                                for k in range(3):
+                                    c2g += odist[0, k] * Js[i + 1][(nextState, k)]
 
-                uopt, Jp = sorted(nextJs.items(), key = lambda x : x[1])[0]
+                                # Worst case analysis version:
+                                nextJs[0][(r, o)] += Js[i + 1][(nextState, 0)]
+                                nextJs[1][(r, o)] += Js[i + 1][(nextState, 1)]
+                                nextJs[2][(r, o)] += Js[i + 1][(nextState, 2)]
+
+                            #nextJs[(r, o)] = c2g
+
+                #uopt, Jp = sorted(nextJs.items(), key = lambda x : x[1])[0]
+
+                # Worse case analysis version:
+                uopt, Jp = sorted([sorted(nextJs[0].items(), key = lambda x : x[1])[0],
+                                   sorted(nextJs[1].items(), key = lambda x : x[1])[0],
+                                   sorted(nextJs[2].items(), key = lambda x : x[1])[0]], key = lambda x : x[1])[-1]
 
                 Js[i][(state, p)] = Jp
                 us[i][(state, p)] = uopt
@@ -158,16 +179,61 @@ for N in Ns:
     print N, (v1, v2, v3)
 Vs = numpy.array(Vs)
 #%%
+Vs = []
+for i in range(200):
+    v1 = Js[200 - i - 1][((0, 0, 0, 0, 0, 0, 0, 0, 0), 0)]
+    v2 = Js[200 - i - 1][((0, 0, 0, 0, 0, 0, 0, 0, 0), 1)]
+    v3 = Js[200 - i - 1][((0, 0, 0, 0, 0, 0, 0, 0, 0), 2)]
+
+    Vs.append((v1, v2, v3))
+
+Vs = numpy.array(Vs)
+
+plt.plot(Vs[:, 0], 'r-')
+plt.plot(Vs[:, 1], 'g--')
+plt.plot(Vs[:, 2], 'b.')
+plt.legend(('Piece 0', 'Piece 1', 'Piece 2'))
+plt.xlabel('# of steps')
+plt.ylabel('Number of eliminated rows')
+plt.gcf().set_size_inches((10, 8))
+plt.show()
+#%%
+state = (0, 0, 0, 0, 0, 0, 0, 0, 0)
+p = 2
+
+nextJs = {}
+
+qdist = numpy.zeros((1, 3))
+qdist[0, p] = 1.0
+
+odist = qdist.dot(P)
+
+for r in range(4):
+    for o in range(w):
+        nextState, reward = lut[(state, p, r, o)]
+
+        if nextState == None:
+            continue
+
+        c2g = reward
+        for k in range(3):
+            c2g += odist[0, k] * Js[i + 1][(nextState, k)]
+        nextJs[(r, o)] = c2g
+
+uopt, Jp = sorted(nextJs.items(), key = lambda x : x[1])[0]
+#%%
+print getNextState(state, p, uopt[0], uopt[1])
+print uopt, Jp
+#%%
 import bisect
 
 vs = []
 
-
-for r in range(100):
-    state, p = ((0, 0, 0, 0, 0, 0, 0, 0, 0), 2)
+for rc in range(100):
+    state, p = ((0, 0, 0, 0, 0, 0, 0, 0, 0), 0)
     total = 0.0
 
-    for i in range(20):
+    for i in range(100):
         r, o = us[i][(state, p)]
         nextState, reward = lut[(state, p, r, o)]
 
@@ -184,9 +250,17 @@ for r in range(100):
 
             p = bisect.bisect_left(numpy.cumsum(odist), r)
 
+
     vs.append(total)
 
 print numpy.mean(vs), numpy.std(vs)
+#%%
+plt.hist(vs)
+plt.title('Distribution of 1000 scores for 100 move game starting with piece 2')
+plt.xlabel('Score')
+plt.ylabel('Count')
+plt.gcf().set_size_inches((6, 4))
+plt.show()
 #%%
 
 state = ((0, 0, 0, 0, 0, 0, 0, 0, 0), 1)
